@@ -8,3 +8,5 @@ class SecretKeys(BaseSettings):
     COGNITO_CLIENT_SECRET: str = ""
     REGION_NAME: str = "us-east-1"
     POSTGRES_DB_URL: str = ""
+    AWS_RAW_VIDEOS_BUCKET: str = ""
+    AWS_VIDEO_THUMBNAIL_BUCKET: str = ""

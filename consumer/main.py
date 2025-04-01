@@ -1,6 +1,6 @@
 import json
 import boto3
-from secrets_keys import SecretKeys
+from secret_keys import SecretKeys
 
 secret_keys = SecretKeys()
 sqs_client = boto3.client(
@@ -9,10 +9,16 @@ sqs_client = boto3.client(
 )
 
 
+ecs_client = boto3.client(
+    "ecs",
+    region_name=secret_keys.REGION_NAME,
+)
+
+
 def poll_sqs():
     while True:
         response = sqs_client.receive_message(
-            QueueUrl=secret_keys.AWS_SQS_QUEUE_URL,
+            QueueUrl=secret_keys.AWS_SQS_VIDEO_PROCESSING,
             MaxNumberOfMessages=1,
             WaitTimeSeconds=10,
         )
@@ -26,15 +32,49 @@ def poll_sqs():
                 and message_body.get("Event") == "s3:TestEvent"
             ):
                 sqs_client.delete_message(
-                    QueueUrl=secret_keys.AWS_SQS_QUEUE_URL,
+                    QueueUrl=secret_keys.AWS_SQS_VIDEO_PROCESSING,
                     ReceiptHandle=message["ReceiptHandle"],
                 )
                 continue
 
             if "Records" in message_body:
-                s3_Record = message_body['Records'][0]['s3']
-                bucket_name = s3_Record['bucker']['name']
-                s3_key = s3_Record['oject']['key']
+                s3_record = message_body["Records"][0]["s3"]
+                bucket_name = s3_record["bucket"]["name"]
+                s3_key = s3_record["object"]["key"]
+
+                response = ecs_client.run_task(
+                    cluster="arn:aws:ecs:ap-south-1:605134446036:cluster/TranscoderCluster",
+                    launchType="FARGATE",
+                    taskDefinition="arn:aws:ecs:ap-south-1:605134446036:task-definition/video-transcoder:2",
+                    overrides={
+                        "containerOverrides": [
+                            {
+                                "name": "video-transcoder",
+                                "environment": [
+                                    {"name": "S3_BUCKET", "value": bucket_name},
+                                    {"name": "S3_KEY", "value": s3_key},
+                                ],
+                            }
+                        ]
+                    },
+                    networkConfiguration={
+                        "awsvpcConfiguration": {
+                            "subnets": [
+                                "subnet-0c1cf3385363a8d66",
+                                "subnet-02bdfb9f48bd9b9a6",
+                                "subnet-0cacf78deb5e67b96",
+                            ],
+                            "assignPublicIp": "ENABLED",
+                            "securityGroups": ["sg-0279fe5648343ea75"],
+                        }
+                    },
+                )
+
+                print(response)
+                sqs_client.delete_message(
+                    QueueUrl=secret_keys.AWS_SQS_VIDEO_PROCESSING,
+                    ReceiptHandle=message["ReceiptHandle"],
+                )
 
 
 poll_sqs()
